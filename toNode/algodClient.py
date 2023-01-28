@@ -32,7 +32,7 @@ def generate_algorand_keypair():
 #generate_algorand_keypair()
 # check balance
 
-passphrase = "card sentence throw suit dose isolate tool minor awful level toy earth liberty spirit since disease broken vehicle syrup interest work tornado icon absent home"
+passphrase = "retire power measure curve dilemma wonder still cream rib gown enroll chuckle anchor liar soon that diesel radar comic popular observe sense cup abstract latin"
 
 private_key = mnemonic.to_private_key(passphrase)
 my_address = mnemonic.to_public_key(passphrase)
@@ -51,7 +51,6 @@ params = algod_client.suggested_params()
 params.flat_fee = True
 params.fee = 1000
 receiver = "GD64YIY3TWGDMCNPP553DZPPR6LDUSFQOIJVFDPPXWEG3FVOJCCDBBHU5A"
-faucet_return_account="HZ57J3K46JIJXILONBBZOHX6BKPXEM2VVXNRFSUED6DKFD5ZD24PMJ3MVA"
 note = "Hello World".encode()
 
 unsigned_txn = PaymentTxn(my_address, params.fee, params.first, params.last, params.gh, receiver="GD64YIY3TWGDMCNPP553DZPPR6LDUSFQOIJVFDPPXWEG3FVOJCCDBBHU5A", amt=1000000, note=note)
