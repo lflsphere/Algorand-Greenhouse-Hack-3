@@ -20,7 +20,7 @@ class Flow(Application):
     """ 
 
     # Global State
-    # - durée d'un mois en secondes
+    # - durée d'un mois en secondes (pour 1 an = 365,25 j et 12 mois dans 1 an)
     one_month_time: Final[ApplicationStateValue] = ApplicationStateValue(stack_type=TealType.uint64, default=Int(Int(2629800)))
 
 
