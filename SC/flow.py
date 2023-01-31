@@ -55,7 +55,16 @@ class Auction(Application):
                 TxnField.asset_amount: Int(0)
             })
         )
-    
+
+    @internal(TealType.none)
+    def pay(self, receiver, amount):
+        return InnerTxnBuilder.Execute({
+            TxnField.type_enum: TxnType.Payment,
+            TxnField.receiver: receiver,
+            TxnField.amount: amount,
+            TxnField.fee: Int(0)
+        })
+
     @internal(TealType.none)
     def pay_by_tx_sender(self, receiver, amount):
         return InnerTxnBuilder.Execute({
@@ -66,19 +75,18 @@ class Auction(Application):
             TxnField.fee: Int(0)
         })
 
-    # Start auction
-    # Need to define starting price and length of auction
-    # We also need to ensure the ASA is sent to the app
+
+
+    # c'est que le sender qui create
     @external
-    def create_flow(self, sender: abi.Account, receiver: abi.Account, flowRate: abi.Uint64, axfer: abi.AssetTransferTransaction):
+    def create_flow(self, sender: abi.Account, receiver: abi.Account, flowRate: abi.Uint64): #, axfer: abi.AssetTransferTransaction)
         return Seq(
-            Assert(self.auction_end.get() == Int(0)),
-            Assert(axfer.get().asset_receiver() == Global.current_application_address()),
-            Assert(axfer.get().xfer_asset() == self.asa.get()),
+            # vérifier que la SS a été créée
             first_month = Int(Mul(flowRate, one_month_time)), # doit être entier => check dans le back; sinon à voir pour la gestion des nbres décimaux 
-            self.pay_by_tx_sender(receiver, first_month),
-            Assert(App.box_create(Bytes(Concat(sender.address(), receiver.address())), Int(32))), # il faut pas que des méchants puissent créer des boxes de leur côté (=> vérif box_array)
-            App.box_put(Bytes(Concat(sender.address(), receiver.address())), Bytes(Concat(Itob(flowRate), Itob(Global.latest_timestamp), Itob(Int(0)), Itob(first_month))))
+            self.pay_by_tx_sender(receiver = Global.current_application_address, first_month), # receiver = smart contract
+
+            Assert(App.box_create(Bytes(Concat(sender.address(), receiver.address())), Int(24))), # il faut pas que des méchants puissent créer des boxes de leur côté (=> vérif box_array)
+            App.box_put(Bytes(Concat(sender.address(), receiver.address())), Bytes(Concat(Itob(flowRate), Itob(Global.latest_timestamp), Itob(first_month))))
             
         )
 
@@ -95,23 +103,10 @@ class Auction(Application):
         return output.set(App.box_extract(Bytes(Concat(sender.address(), receiver.address()), Int(17), Int(8))))
 
 
+    # c'est que le sender qui update
     @external
     def update_flow(self, sender: abi.Account, receiver: abi.Account, new_flowRate: abi.Uint64, axfer: abi.AssetTransferTransaction):
         return Seq(
-            Assert(self.auction_end.get() == Int(0)),
-            Assert(axfer.get().asset_receiver() == Global.current_application_address()),
-            Assert(axfer.get().xfer_asset() == self.asa.get()),
-            # Assert(App.box_create(Bytes(Concat(sender.address(), receiver.address()), Int(64)))),
-            """
-            box_content := App.box_get(Bytes(Concat(sender.address(), receiver.address()))),
-            Assert(box_content.hasValue()),
-            """
-            former_flow_rate = Bytes(read_flow_rate(sender, receiver)),
-            former_timestamp = Bytes(read_timestamp(sender, receiver)),
-            former_payments = Bytes(read_former_payments(sender, receiver)),
-            latest_payment = BytesMul(Bytes("base16", former_flow_rate), Bytes("base16", former_timestamp)),
-            payment_so_far = BytesAdd(Bytes("base16", last_payment), Bytes("base16", former_payments)),
-            App.box_put(Bytes(Concat(sender.address(), receiver.address())), Bytes(Concat(Itob(new_flowRate), Itob(Global.latest_timestamp), payment_so_far ))),
 
             """
             self.asa_amount.set(axfer.get().asset_amount()),
@@ -119,17 +114,44 @@ class Auction(Application):
             self.highest_bid.set(starting_price.get())
             """
 
+            """
+            Assert(self.auction_end.get() == Int(0)),
+            Assert(axfer.get().asset_receiver() == Global.current_application_address()),
+            Assert(axfer.get().xfer_asset() == self.asa.get()),
+
+            Assert(App.box_create(Bytes(Concat(sender.address(), receiver.address()), Int(64)))),
+        
+            box_content := App.box_get(Bytes(Concat(sender.address(), receiver.address()))),
+            Assert(box_content.hasValue()),
+            """
+
+        
+            former_flow_rate = Bytes(read_flow_rate(sender, receiver)),
+            former_timestamp = Bytes(read_timestamp(sender, receiver)),
+            former_payments = Bytes(read_former_payments(sender, receiver)),
+            due_payment = BytesMul(Bytes("base16", former_flow_rate), Bytes("base16", former_timestamp)),
+            # payment_so_far = BytesAdd(Bytes("base16", last_payment), Bytes("base16", former_payments)),
+
+            self.pay_by_tx_sender(receiver = Global.current_application_address, due_payment), # receiver = smart contract
+
+
+            App.box_replace(Bytes(Concat(sender.address(), receiver.address())), Int(0), Bytes(Concat(Itob(new_flowRate), Itob(Global.latest_timestamp))))
+
+           
+
         )
 
+    @external
+    def claim(self, sender: abi.Account, receiver: abi.Account):
+        # faire l'appel à la SS 
+        # faire un claim de la somme latest_payment avec la SS comme ça pas besoin de zone tampon
 
-    @internal(TealType.none)
-    def pay(self, receiver, amount):
-        return InnerTxnBuilder.Execute({
-            TxnField.type_enum: TxnType.Payment,
-            TxnField.receiver: receiver,
-            TxnField.amount: amount,
-            TxnField.fee: Int(0)
-        })
+
+    
+
+
+    
+    
 
     # Bid
     # Place a new bid and return previous bid
