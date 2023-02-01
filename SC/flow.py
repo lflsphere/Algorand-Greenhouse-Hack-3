@@ -5,6 +5,8 @@ import os
 import json
 from typing import Final
 
+from SC.flowpayment_smart_sig import delegated_signature
+
 APP_CREATOR = Seq(creator := AppParam.creator(Int(0)), creator.value())
 
 class Flow(Application):
@@ -12,12 +14,12 @@ class Flow(Application):
     # - durée d'un mois en secondes (pour 1 an = 365,25 j et 12 mois dans 1 an)
     one_month_time: Final[ApplicationStateValue] = ApplicationStateValue(stack_type=TealType.uint64, default=Int(Int(2629800)))
     class DelegatedSignature(LogicSignature):
-            Fee = Int(1000)
+        Fee = Int(1000)
         #Only the SC account can execute the payment transaction
         def evaluate(self):
             return And(
             Txn.type_enum() == TxnType.Payment,
-            Txn.fee() <= Fee,
+            Txn.fee() <= self.Fee,
             Txn.receiver() == Global.current_application_address,
             Global.group_size() == Int(1),
             Txn.rekey_to() == Global.zero_address()
@@ -59,16 +61,11 @@ class Flow(Application):
     def create_flow(self, sender: abi.Account, receiver: abi.Account, flowRate: abi.Uint64): #, axfer: abi.AssetTransferTransaction)
         return Seq(
 
-            delegated_signature = LSigPrecompile(DelegatedSignature()),
+            precompiled_delegated_signature = LSigPrecompile(delegated_signature()),
+            # il va sans doute falloir d'abord faire payer le caution puis créer le flow (cf. comment ligne 62) et donc verifier dans le create que la caution a été créée.
+            self.pay_by_tx_sender(Global.current_application_address, caution), # receiver = smart contract ou utiliser la SS ici plutôt
 
-            # vérifier que la SS a été créée ou pas (en fait c'est peut être pas très grave)
-            Assert(App.box_create(Bytes(Concat(sender.address(), receiver.address())), Int(24))), # il faut pas que des méchants puissent créer des boxes de leur côté (=> vérif box_array)
-            
-            first_month = Int(Mul(flowRate, self.one_month_time.get())), 
-            # il va sans doute falloir d'abord faire payer le first_month puis créer le flow (cf. comment ligne 62) et donc verifier dans le create que le first month a été créé.
-            self.pay_by_tx_sender(Global.current_application_address, first_month), # receiver = smart contract ou utiliser la SS ici plutôt
-
-            App.box_put(Bytes(Concat(sender.address(), receiver.address())), Bytes(Concat(Itob(flowRate), Itob(Global.latest_timestamp), Itob(first_month, Bytes(delegated_signature)))))
+            App.box_put(Bytes(Concat(sender.address(), receiver.address())), Bytes(Concat(Itob(flowRate), Itob(Global.latest_timestamp), Itob(caution, Bytes(delegated_signature)))))
             
         )
 
@@ -81,7 +78,7 @@ class Flow(Application):
         return output.set(App.box_extract(Bytes(Concat(sender.address(), receiver.address()), Int(8), Int(8))))
     
     @external(read_only = True)
-    def read_first_month(self, sender: abi.Account, receiver: abi.Account, *, output: Bytes): # on ne vérifie pas que la box existe
+    def read_caution(self, sender: abi.Account, receiver: abi.Account, *, output: Bytes): # on ne vérifie pas que la box existe
         return output.set(App.box_extract(Bytes(Concat(sender.address(), receiver.address()), Int(16), Int(8))))
     
 

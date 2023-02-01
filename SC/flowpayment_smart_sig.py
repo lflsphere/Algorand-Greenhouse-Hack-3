@@ -6,7 +6,7 @@ from beaker import *
 
 class delegated_signature(LogicSignature):
 
-    one_month_time: Final[ApplicationStateValue] = ApplicationStateValue(stack_type=TealType.uint64, default=Int(Int(2629800)))
+    #one_month_time: Final[ApplicationStateValue] = ApplicationStateValue(stack_type=TealType.uint64, default=Int(Int(2629800)))
     
     Fee = Int(1000)
 
