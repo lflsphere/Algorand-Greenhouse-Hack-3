@@ -8,27 +8,11 @@ from typing import Final
 APP_CREATOR = Seq(creator := AppParam.creator(Int(0)), creator.value())
 
 class Flow(Application):
-
-    """
-    receivers: Final[AccountStateValue] = AccountStateValue(
-        stack_type = TealType.uint64,
-        default = Int(1),
-        descr = "An int stored for each account that opts in",
-        static = False,
-    )
-    receivers: Final[AccountStateValue] = AccountStateValue(stack_type=abi.DynamicArray[TealType.address], default=Bytes(""))
-    """ 
-
     # Global State
     # - durée d'un mois en secondes (pour 1 an = 365,25 j et 12 mois dans 1 an)
     one_month_time: Final[ApplicationStateValue] = ApplicationStateValue(stack_type=TealType.uint64, default=Int(Int(2629800)))
-
     class DelegatedSignature(LogicSignature):
-
-    
-        Fee = Int(1000)
-
-        
+            Fee = Int(1000)
         #Only the SC account can execute the payment transaction
         def evaluate(self):
             return And(
@@ -41,10 +25,6 @@ class Flow(Application):
             return compile()         # Spécifique au smart signature (classe LogicSignature)
 
 
-
-    
-
-
     # Create Application
     @create
     def create(self):
@@ -52,23 +32,6 @@ class Flow(Application):
             self.initialize_application_state(),
             self.initialize_account_state()
         )            
-
-    """
-    # Opt app into ASA
-    @external(authorize=Authorize.only(APP_CREATOR))
-    def opt_into_asset(self, asset: abi.Asset):
-        return Seq(
-            Assert(self.asa == Int(0)),
-            self.asa.set(asset.asset_id()),
-            InnerTxnBuilder.Execute({
-                TxnField.type_enum: TxnType.AssetTransfer,
-                TxnField.fee: Int(0),
-                TxnField.asset_receiver: Global.current_application_address(),
-                TxnField.xfer_asset: asset.asset_id(),
-                TxnField.asset_amount: Int(0)
-            })
-        )
-    """
 
     @internal(TealType.none)
     def pay(self, receiver, amount):
@@ -121,36 +84,11 @@ class Flow(Application):
     def read_first_month(self, sender: abi.Account, receiver: abi.Account, *, output: Bytes): # on ne vérifie pas que la box existe
         return output.set(App.box_extract(Bytes(Concat(sender.address(), receiver.address()), Int(16), Int(8))))
     
-    """
-    on n'utilise plus de zone tampon
-    @external(read_only = True)
-    def read_former_payments(self, sender: abi.Account, receiver: abi.Account, *, output: Bytes): # on ne vérifie pas que la box existe
-        return output.set(App.box_extract(Bytes(Concat(sender.address(), receiver.address()), Int(17), Int(8))))
-    """
 
     # c'est que le sender qui update
     @external
     def update_flow(self, sender: abi.Account, receiver: abi.Account, new_flowRate: abi.Uint64, axfer: abi.AssetTransferTransaction):
-        return Seq(
-
-            """
-            self.asa_amount.set(axfer.get().asset_amount()),
-            self.auction_end.set(length.get() + Global.latest_timestamp()),
-            self.highest_bid.set(starting_price.get())
-           
-
-           
-            Assert(self.auction_end.get() == Int(0)),
-            Assert(axfer.get().asset_receiver() == Global.current_application_address()),
-            Assert(axfer.get().xfer_asset() == self.asa.get()),
-
-            Assert(App.box_create(Bytes(Concat(sender.address(), receiver.address()), Int(64)))),
-        
-            box_content := App.box_get(Bytes(Concat(sender.address(), receiver.address()))),
-            Assert(box_content.hasValue()),
-            """
-
-        
+        return Seq(      
             former_flow_rate = Bytes(read_flow_rate(sender, receiver)),
             former_timestamp = Bytes(read_timestamp(sender, receiver)),
             former_payments = Bytes(read_former_payments(sender, receiver)),
@@ -161,10 +99,7 @@ class Flow(Application):
 
 
             App.box_replace(Bytes(Concat(sender.address(), receiver.address())), Int(0), Bytes(Concat(Itob(new_flowRate), Itob(Global.latest_timestamp))))
-
-           
-
-        )
+            )
 
     @internal()
     def sender_enough_algos(self, amount: abi.Uint64):
@@ -176,59 +111,7 @@ class Flow(Application):
         # faire un claim de la somme latest_payment avec la SS comme ça pas besoin de zone tampon ?
         
 
-    
 
-
-    
-    
-    """
-    # Bid
-    # Place a new bid and return previous bid
-    @external
-    def bid(self, payment: abi.PaymentTransaction, previous_bidder: abi.Account):
-        return Seq(
-            Assert(Global.latest_timestamp() < self.auction_end.get()),
-            Assert(payment.get().amount() > self.highest_bid.get()),
-            Assert(Txn.sender() == payment.get().sender()),
-            Assert(payment.get().receiver() == Global.current_application_address()),
-            If(
-                self.highest_bidder.get() != Bytes(""),
-                Seq(
-                    Assert(self.highest_bidder.get() == previous_bidder.address()),
-                    self.pay(self.highest_bidder.get(), self.highest_bid.get())
-                )
-            ),
-            self.highest_bid.set(payment.get().amount()),
-            self.highest_bidder.set(payment.get().sender())
-        )
-
-    # Claim bid
-    # Let's the auctioner claim the highest bid once the auction has ended
-    @external
-    def claim_bid(self):
-        return Seq(
-            Assert(Global.latest_timestamp() > self.auction_end.get()),
-            self.pay(APP_CREATOR, self.highest_bid.get())
-        )
-
-    # Claim asset
-    # Let's the highest bidder claim the asset once the auction has ended
-    @external
-    def claim_asset(self, asset: abi.Asset, creator: abi.Account):
-        return Seq(
-            Assert(Global.latest_timestamp() > self.auction_end.get()),
-            Assert(creator.address() == APP_CREATOR),
-            Assert(asset.asset_id() == self.asa.get()),
-            InnerTxnBuilder.Execute({
-                TxnField.type_enum: TxnType.AssetTransfer,
-                TxnField.fee: Int(0),
-                TxnField.xfer_asset: asset.asset_id(),
-                TxnField.asset_amount: self.asa_amount.get(),
-                TxnField.asset_receiver: self.highest_bidder.get(),
-                TxnField.asset_close_to: APP_CREATOR
-            })
-        )
-    """
 
     # Delete app
     # Send MBR funds to creator and delete app
