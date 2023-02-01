@@ -23,11 +23,35 @@ class Flow(Application):
     # - durée d'un mois en secondes (pour 1 an = 365,25 j et 12 mois dans 1 an)
     one_month_time: Final[ApplicationStateValue] = ApplicationStateValue(stack_type=TealType.uint64, default=Int(Int(2629800)))
 
+    class DelegatedSignature(LogicSignature):
+
+    
+        Fee = Int(1000)
+
+        
+        #Only the SC account can execute the payment transaction
+        def evaluate(self):
+            return And(
+            Txn.type_enum() == TxnType.Payment,
+            Txn.fee() <= Fee,
+            Txn.receiver() == Global.current_application_address,
+            Global.group_size() == Int(1),
+            Txn.rekey_to() == Global.zero_address()
+            )
+            return compile()         # Spécifique au smart signature (classe LogicSignature)
+
+
+
+    
+
 
     # Create Application
     @create
     def create(self):
-        return self.initialize_application_state()
+        return Seq(
+            self.initialize_application_state(),
+            self.initialize_account_state()
+        )            
 
     """
     # Opt app into ASA
@@ -72,6 +96,8 @@ class Flow(Application):
     def create_flow(self, sender: abi.Account, receiver: abi.Account, flowRate: abi.Uint64): #, axfer: abi.AssetTransferTransaction)
         return Seq(
 
+            delegated_signature = LSigPrecompile(DelegatedSignature()),
+
             # vérifier que la SS a été créée ou pas (en fait c'est peut être pas très grave)
             Assert(App.box_create(Bytes(Concat(sender.address(), receiver.address())), Int(24))), # il faut pas que des méchants puissent créer des boxes de leur côté (=> vérif box_array)
             
@@ -79,7 +105,7 @@ class Flow(Application):
             # il va sans doute falloir d'abord faire payer le first_month puis créer le flow (cf. comment ligne 62) et donc verifier dans le create que le first month a été créé.
             self.pay_by_tx_sender(Global.current_application_address, first_month), # receiver = smart contract ou utiliser la SS ici plutôt
 
-            App.box_put(Bytes(Concat(sender.address(), receiver.address())), Bytes(Concat(Itob(flowRate), Itob(Global.latest_timestamp), Itob(first_month))))
+            App.box_put(Bytes(Concat(sender.address(), receiver.address())), Bytes(Concat(Itob(flowRate), Itob(Global.latest_timestamp), Itob(first_month, Bytes(delegated_signature)))))
             
         )
 
@@ -140,11 +166,15 @@ class Flow(Application):
 
         )
 
-    @external
+    @internal()
+    def sender_enough_algos(self, amount: abi.Uint64):
+        return If(Txn.sender.balance.get() > amount, claim())
+    
+    @internal
     def claim(self, sender: abi.Account, receiver: abi.Account):
         # faire l'appel à la SS 
         # faire un claim de la somme latest_payment avec la SS comme ça pas besoin de zone tampon ?
-
+        
 
     
 
@@ -215,7 +245,8 @@ class Flow(Application):
 
 
 if __name__ == "__main__":
-    app = Auction(version=8)
+
+    app = Flow()
 
     if os.path.exists("approval.teal"):
         os.remove("approval.teal")

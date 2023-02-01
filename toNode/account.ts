@@ -1,6 +1,6 @@
 
 // account.ts
-import algosdk, { Account, Algodv2 } from algosdk
+import algosdk, { Account, Algodv2 } from 'algosdk'
 import { getKmdClient } from './client'
 
 export async function isSandbox(client: Algodv2): Promise<boolean> {
