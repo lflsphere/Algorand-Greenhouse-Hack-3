@@ -12,7 +12,7 @@ class Flow(Application):
     """
     receivers: Final[AccountStateValue] = AccountStateValue(
         stack_type = TealType.uint64,
-        default = Int(1),
+        default = Int(1),$
         descr = "An int stored for each account that opts in",
         static = False,
     )
@@ -25,7 +25,7 @@ class Flow(Application):
 
     class DelegatedSignature(LogicSignature):
 
-    
+        
         Fee = Int(1000)
 
         
@@ -174,7 +174,18 @@ class Flow(Application):
     def claim(self, sender: abi.Account, receiver: abi.Account):
         # faire l'appel à la SS 
         # faire un claim de la somme latest_payment avec la SS comme ça pas besoin de zone tampon ?
-        
+        InnerTxnBuilder.Begin(),
+        InnerTxnBuilder.MethodCall({
+            app_id = Global.current_application_address,
+            method_signature = # str_type,
+            args = # list de expr ou de list engros,
+            extra_fields = # optionnel 
+            TxnField.type_enum: TxnType.Payment,
+            TxnField.receiver: receiver,
+            TxnField.amount: amount,
+            TxnField.fee: Int(0)
+        }),
+        InnerTxnBuilder.Submit()
 
     
 
