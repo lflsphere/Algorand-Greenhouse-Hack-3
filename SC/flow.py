@@ -22,7 +22,6 @@ class Flow(Application):
             Txn.fee() <= self.Fee,
             Txn.receiver() == Global.current_application_address,
             Global.group_size() == Int(1),
-            Txn.rekey_to() == Global.zero_address()
             )
             return compile()         # Spécifique au smart signature (classe LogicSignature)
 
