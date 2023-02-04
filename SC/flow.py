@@ -5,7 +5,7 @@ import os
 import json
 from typing import Final
 
-APP_CREATOR = Seq(creator := AppParam.creator(Int(0)), creator.value())
+# APP_CREATOR = Seq(creator := AppParam.creator(Int(0)), creator.value())
 
 class Flow(Application):
 
@@ -24,21 +24,22 @@ class Flow(Application):
     one_month_time: Final[ApplicationStateValue] = ApplicationStateValue(stack_type=TealType.uint64, default=Int(Int(2629800)))
 
     class DelegatedSignature(LogicSignature):
-
         
         Fee = Int(1000)
 
-        
-        #Only the SC account can execute the payment transaction
+        def __init__(self, version: int, receiver: abi.Account):
+            self.receiver_address = receiver.address()
+        LogicSignature.__init__(self, MAX_TEAL_VERSION)
+        #Only the receiver account can execute the payment transaction
         def evaluate(self):
             return And(
             Txn.type_enum() == TxnType.Payment,
             Txn.fee() <= Fee,
-            Txn.receiver() == Global.current_application_address,
+            Txn.sender() == self.receiver_address,
             Global.group_size() == Int(1),
             Txn.rekey_to() == Global.zero_address()
             )
-            return compile()         # Spécifique au smart signature (classe LogicSignature)
+        # return compile() Spécifique au smart signature (classe LogicSignature) PASBESOINNORMALEMENT
 
 
 
@@ -96,28 +97,27 @@ class Flow(Application):
     def create_flow(self, sender: abi.Account, receiver: abi.Account, flowRate: abi.Uint64): #, axfer: abi.AssetTransferTransaction)
         return Seq(
 
-            delegated_signature = LSigPrecompile(DelegatedSignature()),
+            Assert(Txn.sender() == sender.address()),
 
             # vérifier que la SS a été créée ou pas (en fait c'est peut être pas très grave)
-            Assert(App.box_create(Bytes(Concat(sender.address(), receiver.address())), Int(24))), # il faut pas que des méchants puissent créer des boxes de leur côté (=> vérif box_array)
-            
-            first_month = Int(Mul(flowRate, self.one_month_time.get())), 
-            # il va sans doute falloir d'abord faire payer le first_month puis créer le flow (cf. comment ligne 62) et donc verifier dans le create que le first month a été créé.
-            self.pay_by_tx_sender(Global.current_application_address, first_month), # receiver = smart contract ou utiliser la SS ici plutôt
 
-            App.box_put(Bytes(Concat(sender.address(), receiver.address())), Bytes(Concat(Itob(flowRate), Itob(Global.latest_timestamp), Itob(first_month, Bytes(delegated_signature)))))
+            Assert(self.Bytes(Concat(sender.address(), receiver.address())).exists()), # il faut pas que des méchants puissent créer des boxes de leur côté (=> vérif box_array)
+            
+            # le payment du first month sera en atomic transaction avec le create_flow
+
+            App.box_put(Bytes(Concat(sender.address(), receiver.address())), Bytes(Concat(Itob(flowRate.get()), Itob(Global.latest_timestamp()), Itob(Int(Mul(flowRate.get(), self.one_month_time.get()))), Bytes(LSigPrecompile(self.DelegatedSignature(MAX_TEAL_VERSION, receiver.address()))))))
             
         )
 
-    @external(read_only = True)
+    @internal()
     def read_flow_rate(self, sender: abi.Account, receiver: abi.Account, *, output: Bytes): # on ne vérifie pas que la box existe
         return output.set(App.box_extract(Bytes(Concat(sender.address(), receiver.address()), Int(0), Int(8))))
 
-    @external(read_only = True)
+    @internal()
     def read_timestamp(self, sender: abi.Account, receiver: abi.Account, *, output: Bytes): # on ne vérifie pas que la box existe
         return output.set(App.box_extract(Bytes(Concat(sender.address(), receiver.address()), Int(8), Int(8))))
     
-    @external(read_only = True)
+    @internal()
     def read_first_month(self, sender: abi.Account, receiver: abi.Account, *, output: Bytes): # on ne vérifie pas que la box existe
         return output.set(App.box_extract(Bytes(Concat(sender.address(), receiver.address()), Int(16), Int(8))))
     
@@ -128,11 +128,23 @@ class Flow(Application):
         return output.set(App.box_extract(Bytes(Concat(sender.address(), receiver.address()), Int(17), Int(8))))
     """
 
+    @internal 
+    def calculate_due_payment():
+        return BytesMul(Bytes("base16", Bytes(read_flow_rate(sender, receiver))), Bytes("base16", Bytes(read_timestamp(sender, receiver))))
+
     # c'est que le sender qui update
     @external
     def update_flow(self, sender: abi.Account, receiver: abi.Account, new_flowRate: abi.Uint64, axfer: abi.AssetTransferTransaction):
         return Seq(
+            
+            Assert(Txn.sender() == sender.address()),
 
+            # le payment de calculate_due_payment  sera en atomic transaction avec le update_flow
+
+
+            App.box_replace(Bytes(Concat(sender.address(), receiver.address())), Int(0), Bytes(Concat(Itob(new_flowRate.get()), Itob(Global.latest_timestamp())))),
+
+            
             """
             self.asa_amount.set(axfer.get().asset_amount()),
             self.auction_end.set(length.get() + Global.latest_timestamp()),
@@ -149,19 +161,6 @@ class Flow(Application):
             box_content := App.box_get(Bytes(Concat(sender.address(), receiver.address()))),
             Assert(box_content.hasValue()),
             """
-
-        
-            former_flow_rate = Bytes(read_flow_rate(sender, receiver)),
-            former_timestamp = Bytes(read_timestamp(sender, receiver)),
-            former_payments = Bytes(read_former_payments(sender, receiver)),
-            due_payment = BytesMul(Bytes("base16", former_flow_rate), Bytes("base16", former_timestamp)),
-            # payment_so_far = BytesAdd(Bytes("base16", last_payment), Bytes("base16", former_payments)), plus de zone tampon
-
-            self.pay_by_tx_sender(receiver = Global.current_application_address, due_payment), # receiver = smart contract ou utiliser la SS ici plutôt
-
-
-            App.box_replace(Bytes(Concat(sender.address(), receiver.address())), Int(0), Bytes(Concat(Itob(new_flowRate), Itob(Global.latest_timestamp))))
-
            
 
         )
@@ -174,7 +173,6 @@ class Flow(Application):
     def claim(self, sender: abi.Account, receiver: abi.Account):
         # faire l'appel à la SS 
         # faire un claim de la somme latest_payment avec la SS comme ça pas besoin de zone tampon ?
-        InnerTxnBuilder.Begin(),
         InnerTxnBuilder.MethodCall({
             app_id = Global.current_application_address,
             method_signature = # str_type,
@@ -185,7 +183,6 @@ class Flow(Application):
             TxnField.amount: amount,
             TxnField.fee: Int(0)
         }),
-        InnerTxnBuilder.Submit()
 
     
 
