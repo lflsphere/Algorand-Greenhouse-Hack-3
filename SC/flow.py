@@ -96,7 +96,6 @@ class Flow(Application):
     max_list = List(abi.Address, 1000)
     senders_to_receivers = Mapping(abi.Address, max_list)
     receivers_to_senders = Mapping(abi.Address, max_list)
-    flows = Mapping(abi.)
 
     # c'est que le sender qui create
     @external
@@ -108,13 +107,15 @@ class Flow(Application):
             # vérifier que la SS a été créée ou pas (en fait c'est peut être pas très grave)
 
             Assert(self.Bytes(Concat(sender.address(), receiver.address())).exists()), # il faut pas que des méchants puissent créer des boxes de leur côté (=> vérif box_array)
-            
+            (receivers := Concat(abi.Address(self.senders_to_receivers[sender.address()].get(), receiver.address()))),
+            (senders := Concat(abi.Address(self.receivers_to_senders[receiver.address()].get(), sender.address()))),
             
             # le payment du first month sera en atomic transaction avec le create_flow
 
             App.box_put(Bytes(Concat(sender.address(), receiver.address())), Bytes(Concat(Itob(flowRate.get()), Itob(Global.latest_timestamp()), Itob(Int(Mul(flowRate.get(), self.one_month_time.get()))), Bytes(LSigPrecompile(self.DelegatedSignature(MAX_TEAL_VERSION, sender.get(), receiver.get())))))),
-            self.senders_to_receivers[sender.address()].set(max_list[receiver.address()),
-            self.receivers_to_senders[receiver.address()].set(sender.address())
+            self.senders_to_receivers[sender.address()].set(receivers),
+            self.receivers_to_senders[receiver.address()].set(senders)
+
         )
 
     @internal
@@ -178,7 +179,7 @@ class Flow(Application):
            
 
         )
-
+    
     @internal()
     def sender_enough_algos(self, amount: abi.Uint64):
         return If(Txn.sender.balance.get() > amount, claim())
