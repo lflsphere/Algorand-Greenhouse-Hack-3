@@ -5,7 +5,7 @@ import os
 import json
 from typing import Final
 
-APP_CREATOR = AppParam.creator.value()
+# APP_CREATOR = AppParam.creator.value()
 
 class Flow(Application):
 
@@ -21,7 +21,7 @@ class Flow(Application):
 
     # Global State
     # - durée d'un mois en secondes (pour 1 an = 365,25 j et 12 mois dans 1 an)
-    one_month_time: Final[ApplicationStateValue] = ApplicationStateValue(stack_type=TealType.uint64, default=Int(Int(2629800)))
+    one_month_time: Final[ApplicationStateValue] = ApplicationStateValue(stack_type=TealType.uint64, default=Int(2629800))
 
     class DelegatedSignature(LogicSignature):
         
@@ -30,7 +30,7 @@ class Flow(Application):
         def __init__(self, version: int, sender: abi.Account, receiver: abi.Account):
             self.sender = sender.get()
             self.receiver = receiver.get()
-        LogicSignature.__init__(self, MAX_TEAL_VERSION)
+            LogicSignature.__init__(self, version = MAX_TEAL_VERSION)
 
         #Only the receiver account can execute the payment transaction
         def evaluate(self):
@@ -93,9 +93,8 @@ class Flow(Application):
             TxnField.fee: Int(0)
         })
 
-    max_list = List(abi.Address, 1000)
-    senders_to_receivers = Mapping(abi.Address, max_list)
-    receivers_to_senders = Mapping(abi.Address, max_list)
+    senders_to_receivers = Mapping(abi.Address, List(abi.Address, 1000).create())
+    receivers_to_senders = Mapping(abi.Address, List(abi.Address, 1000).create())
 
     # c'est que le sender qui create
     @external
@@ -179,7 +178,7 @@ class Flow(Application):
            
 
         )
-    
+
     @internal()
     def sender_enough_algos(self, amount: abi.Uint64):
         return If(Txn.sender.balance.get() > amount, claim())
@@ -251,6 +250,49 @@ class Flow(Application):
         })
 
 
+def demo():
+    # Set up accounts we'll use
+    accts = sandbox.get_accounts()
+    acct1 = accts.pop()
+    acct2 = accts.pop()
+    print(f"account 1 address: {acct1.address}")
+
+    # Set up Algod Client
+    client=sandbox.get_algod_client()
+
+    # Create Application client
+    app_client1 = ApplicationClient(
+        client, app=Flow(), signer=acct1.signer
+    )
+
+    # Create the app on-chain (uses signer1)
+    app_client1.create()
+    print(f"Current app state: {app_client1.get_application_state()}\n")
+    # Fund the app account with 1 algo
+    app_client1.fund(1 * consts.algo)
+
+    # Set nickname of acct1
+    # app_client1.opt_in()
+    app_client1.call(Flow.create_flow, sender = acct1, receiver = acct2, flowRate = 1000)
+    print("account 1 local state:")
+    print(app_client1.get_account_state(), "\n")
+
+    # Show application account information
+    print("application acct info:")
+    app_acct_info = json.dumps(app_client1.get_application_account_info(), indent=4)
+    print(app_acct_info)
+
+    try:
+        # app_client1.close_out()
+        app_client1.delete()
+    except Exception as e:
+        print(e)
+
+demo()
+
+if __name__ == "__main__":
+    demo()
+
 
 if __name__ == "__main__":
 
@@ -259,7 +301,7 @@ if __name__ == "__main__":
     if os.path.exists("approval.teal"):
         os.remove("approval.teal")
 
-    if os.path.exists("approval.teal"):
+    if os.path.exists("clear.teal"):
         os.remove("clear.teal")
 
     if os.path.exists("abi.json"):
