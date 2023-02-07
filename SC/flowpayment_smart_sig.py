@@ -21,5 +21,5 @@ class delegated_signature(LogicSignature):
         Txn.rekey_to() == Global.zero_address()
         )
     # Mode.Signature specifies that this is a smart signature
-        return compile()
+    return compile()
 

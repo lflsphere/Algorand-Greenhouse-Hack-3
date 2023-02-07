@@ -5,14 +5,14 @@ import os
 import json
 from typing import Final
 
-# APP_CREATOR = AppParam.creator.value()
+APP_CREATOR = AppParam.creator.value()
 
 class Flow(Application):
 
     """
     receivers: Final[AccountStateValue] = AccountStateValue(
         stack_type = TealType.uint64,
-        default = Int(1),$
+        default = Int(1),
         descr = "An int stored for each account that opts in",
         static = False,
     )
@@ -179,11 +179,12 @@ class Flow(Application):
 
         )
 
+    """
     @internal()
     def sender_enough_algos(self, amount: abi.Uint64):
         return If(Txn.sender.balance.get() > amount, claim())
     
-    
+    """
 
 
     
