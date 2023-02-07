@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from pyteal import *
+from beaker.lib.storage.mapping import *
 from beaker import *
 import os
 import json
