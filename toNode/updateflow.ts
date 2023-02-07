@@ -1,18 +1,45 @@
 // update flow application
+import * as algosdk from 'algosdk'
+import { OnApplicationComplete } from 'algosdk';
 
-const algosdk = require("algosdk");
-import  network  as network from ./connectwallet.js
-const algodclient = new algosdk.Algodv2(network.token, network.host, network.port);
+const algodServer = 'http://localhost:4001';
+const indexerServer = 'http://localhost:8980';
+const token = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' ;
+const port = '4001';
+let  algodclient = new algosdk.Algodv2(algodServer, indexerServer, port );
+const  params = await algodclient.getTransactionParams().do();
+const minfee=0.000001
+let afee= Math.max (minfee,params.fee)
+params.fee=afee
+let  indexerClient = new algosdk.Indexer(token, indexerServer, port);
 
-// Replace <UPDATE_FLOW_SMART_CONTRACT_ID> with the ID of the update flow smart contract
-async function updateFlow() {
-    let contractAddress = <UPDATE_FLOW_SMART_CONTRACT_ID>;
-    let note = new Uint8Array(0);
-    let txn = algosdk.makeContractCallTransaction(<SENDER_ADDRESS>, contractAddress, <AMOUNT>, <FEE>, <FIRST_VALID_ROUND>, <LAST_VALID_ROUND>, note);
-    let signedTxn = await algodclient.signTransaction(txn, <SENDER_SK>);
-    let tx = (await algodclient.sendRawTransaction(signedTxn.blob));
-    console.log("Transaction : " + tx.txId);
-}
+let addr ="BTX73BBXFAGATBWZDRUKQRMNDFMR7K7NWETK5CMMJYZK7SVD4JPN2MYZ7I"
+
+const receiver = document.getElementById("receiver").value;
+const flowrate = document.getElementById("flowrate").value;
+const smartkey = document.getElementById("smartkey").value;
+
+async function updateFlow() { 
+    let contractAddress = 123465;
+    let note = algosdk.encodeObj({ "contract-call": receiver , flowrate  });
+    const app_args = [ note];
+    let firstRound = params.lastRound;
+    let lastRound = firstRound + 1000;
+    console.log(app_args);
+    let txn = algosdk.makeApplicationCallTxnFromObject({
+        appIndex: contractAddress,
+        from: addr,
+        onComplete: OnApplicationComplete.NoOpOC,
+        suggestedParams: params,
+        appArgs: app_args,
+       });
+  
+       let signedTxn = txn.signTxn(smartkey);
+       let txId = txn.txID().toString();
+       console.log("Signed transaction with txID: %s", txId);
+    ;}
+
+  
 
 updateFlow();
 
