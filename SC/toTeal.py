@@ -1,6 +1,8 @@
 
-import flow_escrow
+from flow_escrow import *
+from beaker.application import Application
 
-__name__ == "__main__"
+app = FlowEscrow()
+app.dump()
 
 

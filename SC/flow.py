@@ -30,7 +30,7 @@ class Flow(Application):
         def __init__(self, version: int, sender: abi.Account, receiver: abi.Account):
             self.sender = sender.get()
             self.receiver = receiver.get()
-            LogicSignature.__init__(self, version = MAX_TEAL_VERSION)
+            LogicSignature.__init__(version = MAX_TEAL_VERSION)
 
         #Only the receiver account can execute the payment transaction
         def evaluate(self):

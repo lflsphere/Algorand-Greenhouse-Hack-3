@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
+
+from beaker import *
 from pyteal import *
 from beaker.lib.storage.mapping import *
-from beaker import *
+from beaker.lib.storage._list import *
 import os
 import json
-from typing import Final
+from typing import (Final, Literal) 
 
 # APP_CREATOR = AppParam.creator.value()
 
-class Flow_Escrow(Application()):
+class FlowEscrow(Application):
+
 
     # Global State
     # - durée d'un mois en secondes (pour 1 an = 365,25 j et 12 mois dans 1 an)
@@ -22,14 +25,25 @@ class Flow_Escrow(Application()):
         descr = "the amt of Algos each account has",
     )
 
-    senders_to_receivers = Mapping(abi.Address, List(abi.Address, 1000).create())
-    receivers_to_senders = Mapping(abi.Address, List(abi.Address, 1000).create())
+
 
     # Create Application
     @create
     def create(self):
-        return self.initialize_application_state()
-        
+        return Seq(
+            self.initialize_application_state(),
+        )
+
+    
+    senders_to_receivers = Mapping(abi.Address, abi.StaticArray[abi.Address, Literal[999]], Bytes("stor")),
+    @external(read_only = True)
+    def read_senders_to_receivers(self, sender: abi.Account, *, output: abi.StaticArray[abi.Address, Literal[999]]):
+        return self.senders_to_receivers[sender.address()].get()
+
+    receivers_to_senders = Mapping(abi.Address, abi.StaticArray[abi.Address, Literal[999]], Bytes("rtos")),
+    @external(read_only = True)
+    def read_receivers_to_senders(self, receiver: abi.Account, *, output: abi.StaticArray[abi.Address, Literal[999]]):
+        return self.senders_to_receivers[sender.address()].get()
 
     @opt_in
     def opt_in(self):
@@ -60,6 +74,12 @@ class Flow_Escrow(Application()):
             self.senders_to_receivers[sender.address()].set(receivers)
         )
 
+    @internal
+    def delete_receiver_to_receivers(self, sender: abi.Account, receiver: abi.Account):
+        return Seq(
+            (receivers := Concat(abi.Address(self.senders_to_receivers[sender.address()].get(), receiver.address()))),
+            self.senders_to_receivers[sender.address()].set(receivers)
+        )
 
     @internal
     def add_sender_to_senders(self, sender: abi.Account, receiver: abi.Account):
@@ -87,11 +107,11 @@ class Flow_Escrow(Application()):
 
         )
 
-    @internal
+    @internal(TealType.bytes)
     def read_flow_rate(self, sender: abi.Account, receiver: abi.Account, *, output: Bytes): # on ne vérifie pas que la box existe
         return output.set(App.box_extract(Bytes(Concat(sender.address(), receiver.address()), Int(0), Int(8))))
 
-    @internal
+    @internal(TealType.bytes)
     def read_timestamp(self, sender: abi.Account, receiver: abi.Account, *, output: Bytes): # on ne vérifie pas que la box existe
         return output.set(App.box_extract(Bytes(Concat(sender.address(), receiver.address()), Int(8), Int(8))))
     
@@ -143,10 +163,20 @@ class Flow_Escrow(Application()):
             TxnField.fee: Int(0)
         })
         )
+    
+    """
+    @external
+    def delete_flow(self, sender: abi.Account, receiver: abi.Account):
+        return Seq(
+            Assert(Or(Txn.sender() == sender.get(), Txn.sender() == receiver.get())),
+            Assert(App.box_delete(Bytes(Concat(sender.address(), receiver.address())))),
+            self.senders_to_receivers[sender.get()].
+        )
+    """
 
     # Delete app
     # Send MBR funds to creator and delete app
-    @delete
+    @delete(authorize=Authorize.only(Global.creator_address()))
     def delete():
         return InnerTxnBuilder.Execute({
             TxnField.type_enum: TxnType.Payment,
@@ -157,10 +187,11 @@ class Flow_Escrow(Application()):
         })
 
 
-  
-# if __name__ == "__main__":
 
-    app = Flow_Escrow()
+  
+if __name__ == "__main__":
+
+    app = FlowEscrow(version=8)
 
     if os.path.exists("approval.teal"):
         os.remove("approval.teal")
@@ -185,3 +216,4 @@ class Flow_Escrow(Application()):
 
     with open("app_spec.json", "w") as f:
         f.write(json.dumps(app.application_spec(), indent=4))
+
