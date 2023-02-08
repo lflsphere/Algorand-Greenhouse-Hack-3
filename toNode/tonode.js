@@ -41,9 +41,8 @@ async function createFlow(receiver,flowrate,smartkey) {
          suggestedParams: params,
          appArgs: app_args,
         });
-        
-        let signedTxn = txn.signTxn(smartkey);
         let const signedTxn = await myAlgoConnect.signTxns(txns);
+        let txId = txn.txID().toString();
         console.log("Signed transaction with txID: %s", txId);}
 function calculateduepayment(address){
     
@@ -81,8 +80,7 @@ async function claimflow(receiver,sender) {
          suggestedParams: params,
          appArgs: app_args,
         });
-        
-        let signedTxn = txn.signTxn(smartkey);
         let const signedTxn = await myAlgoConnect.signTxns(txns);
+        let txId = txn.txID().toString();
         console.log("Signed transaction with txID: %s", txId);
         
