@@ -45,7 +45,7 @@ async function createFlow(receiver,flowrate,smartkey) {
         let signedTxn = txn.signTxn(smartkey);
         let const signedTxn = await myAlgoConnect.signTxns(txns);
         console.log("Signed transaction with txID: %s", txId);}
-function calculateduepayment(){
+function calculateduepayment(address){
     
     let receivers=algosdk.makeApplicationCallTxnFromObject({
         appIndex: 145047401,
@@ -61,4 +61,28 @@ function calculateduepayment(){
         suggestedParams: params,
         appArgs: nil ,
        });}
-       
+async function claimflow(receiver,sender) {
+    let contractAddress = 123465;
+     let note = algosdk.encodeObj({ "contract-call": receiver , sender  });
+     const app_args = [ note];
+     const  params = await algodclient.getTransactionParams().do();
+    const minfee=0.001
+	let pay=calculatedpayment(receiver)[sender];
+    
+    let afee= Math.max(minfee,params.fee)
+    params.fee=afee
+     let firstRound = params.lastRound;
+     let lastRound = firstRound + 1000;
+     console.log(app_args);
+     let txn = algosdk.makeApplicationCallTxnFromObject({
+         appIndex: 145047401,
+         from: accounts["address"],
+         onComplete: OnApplicationComplete.NoOpOC,
+         suggestedParams: params,
+         appArgs: app_args,
+        });
+        
+        let signedTxn = txn.signTxn(smartkey);
+        let const signedTxn = await myAlgoConnect.signTxns(txns);
+        console.log("Signed transaction with txID: %s", txId);
+        
