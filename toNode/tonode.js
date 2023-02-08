@@ -43,7 +43,7 @@ async function createFlow(receiver,flowrate,smartkey) {
         });
         
         let signedTxn = txn.signTxn(smartkey);
-        let txId = txn.txID().toString();
+        let const signedTxn = await myAlgoConnect.signTxns(txns);
         console.log("Signed transaction with txID: %s", txId);}
 function calculateduepayment(){
     
