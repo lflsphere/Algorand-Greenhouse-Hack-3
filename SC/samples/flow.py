@@ -5,7 +5,7 @@ import os
 import json
 from typing import Final
 
-APP_CREATOR = Seq(creator := AppParam.creator(Int(0)), creator.value())
+APP_CREATOR = AppParam.creator.value()
 
 class Flow(Application):
 
@@ -21,24 +21,28 @@ class Flow(Application):
 
     # Global State
     # - durée d'un mois en secondes (pour 1 an = 365,25 j et 12 mois dans 1 an)
-    one_month_time: Final[ApplicationStateValue] = ApplicationStateValue(stack_type=TealType.uint64, default=Int(Int(2629800)))
+    one_month_time: Final[ApplicationStateValue] = ApplicationStateValue(stack_type=TealType.uint64, default=Int(2629800))
 
     class DelegatedSignature(LogicSignature):
-
-    
+        
         Fee = Int(1000)
 
-        
-        #Only the SC account can execute the payment transaction
+        def __init__(self, version: int, sender: abi.Account, receiver: abi.Account):
+            self.sender = sender.get()
+            self.receiver = receiver.get()
+            LogicSignature.__init__(version = MAX_TEAL_VERSION)
+
+        #Only the receiver account can execute the payment transaction
         def evaluate(self):
             return And(
             Txn.type_enum() == TxnType.Payment,
             Txn.fee() <= Fee,
-            Txn.receiver() == Global.current_application_address,
+            Txn.amount == calculate_due_payment(self.sender, self.receiver), # the receiver has to  withdraw exactly the pending flow. For BtoC usecases, it is up to the B to withdraw when it suits best the C; otherwise the C will be likely to change for another B.
+            Txn.sender() == self.receiver.address(),
             Global.group_size() == Int(1),
             Txn.rekey_to() == Global.zero_address()
             )
-            return compile()         # Spécifique au smart signature (classe LogicSignature)
+        # return compile() Spécifique au smart signature (classe LogicSignature) PASBESOINNORMALEMENT
 
 
 
@@ -89,38 +93,47 @@ class Flow(Application):
             TxnField.fee: Int(0)
         })
 
-
+    senders_to_receivers = Mapping(abi.Address, List(abi.Address, 1000).create())
+    receivers_to_senders = Mapping(abi.Address, List(abi.Address, 1000).create())
 
     # c'est que le sender qui create
     @external
     def create_flow(self, sender: abi.Account, receiver: abi.Account, flowRate: abi.Uint64): #, axfer: abi.AssetTransferTransaction)
         return Seq(
 
-            delegated_signature = LSigPrecompile(DelegatedSignature()),
+            Assert(Txn.sender() == sender.address()),
 
             # vérifier que la SS a été créée ou pas (en fait c'est peut être pas très grave)
-            Assert(App.box_create(Bytes(Concat(sender.address(), receiver.address())), Int(24))), # il faut pas que des méchants puissent créer des boxes de leur côté (=> vérif box_array)
-            
-            first_month = Int(Mul(flowRate, self.one_month_time.get())), 
-            # il va sans doute falloir d'abord faire payer le first_month puis créer le flow (cf. comment ligne 62) et donc verifier dans le create que le first month a été créé.
-            self.pay_by_tx_sender(Global.current_application_address, first_month), # receiver = smart contract ou utiliser la SS ici plutôt
 
-            App.box_put(Bytes(Concat(sender.address(), receiver.address())), Bytes(Concat(Itob(flowRate), Itob(Global.latest_timestamp), Itob(first_month, Bytes(delegated_signature)))))
+            Assert(self.Bytes(Concat(sender.address(), receiver.address())).exists()), # il faut pas que des méchants puissent créer des boxes de leur côté (=> vérif box_array)
+            (receivers := Concat(abi.Address(self.senders_to_receivers[sender.address()].get(), receiver.address()))),
+            (senders := Concat(abi.Address(self.receivers_to_senders[receiver.address()].get(), sender.address()))),
             
+            # le payment du first month sera en atomic transaction avec le create_flow
+
+            App.box_put(Bytes(Concat(sender.address(), receiver.address())), Bytes(Concat(Itob(flowRate.get()), Itob(Global.latest_timestamp()), Itob(Int(Mul(flowRate.get(), self.one_month_time.get()))), Bytes(LSigPrecompile(self.DelegatedSignature(MAX_TEAL_VERSION, sender.get(), receiver.get())))))),
+            self.senders_to_receivers[sender.address()].set(receivers),
+            self.receivers_to_senders[receiver.address()].set(senders)
+
         )
 
-    @external(read_only = True)
+    @internal
     def read_flow_rate(self, sender: abi.Account, receiver: abi.Account, *, output: Bytes): # on ne vérifie pas que la box existe
         return output.set(App.box_extract(Bytes(Concat(sender.address(), receiver.address()), Int(0), Int(8))))
 
-    @external(read_only = True)
+    @internal
     def read_timestamp(self, sender: abi.Account, receiver: abi.Account, *, output: Bytes): # on ne vérifie pas que la box existe
         return output.set(App.box_extract(Bytes(Concat(sender.address(), receiver.address()), Int(8), Int(8))))
     
-    @external(read_only = True)
+    @internal
     def read_first_month(self, sender: abi.Account, receiver: abi.Account, *, output: Bytes): # on ne vérifie pas que la box existe
         return output.set(App.box_extract(Bytes(Concat(sender.address(), receiver.address()), Int(16), Int(8))))
     
+    @internal
+    def read_box(self, box_name: Bytes, *, output: Bytes):
+        return output.set(App.box_get(Bytes(box_name.get())).value())
+
+
     """
     on n'utilise plus de zone tampon
     @external(read_only = True)
@@ -128,10 +141,23 @@ class Flow(Application):
         return output.set(App.box_extract(Bytes(Concat(sender.address(), receiver.address()), Int(17), Int(8))))
     """
 
+    @external(read_only=True) 
+    def calculate_due_payment(self, sender: abi.Account, receiver: abi.Account, *, output: Bytes):
+        return output.set(BytesMul(Bytes("base16", Bytes(read_flow_rate(sender.get(), receiver.get()))), Bytes("base16", Bytes(read_timestamp(sender.get(), receiver.get())))))
+
     # c'est que le sender qui update
     @external
     def update_flow(self, sender: abi.Account, receiver: abi.Account, new_flowRate: abi.Uint64, axfer: abi.AssetTransferTransaction):
         return Seq(
+            
+            Assert(Txn.sender() == sender.address()),
+
+            # le payment de calculate_due_payment  sera en atomic transaction avec le update_flow
+
+            App.box_replace(Bytes(Concat(sender.address(), receiver.address())), Int(0), Bytes(Concat(Itob(new_flowRate.get()), Itob(Global.latest_timestamp())))),
+
+
+
 
             """
             self.asa_amount.set(axfer.get().asset_amount()),
@@ -149,34 +175,16 @@ class Flow(Application):
             box_content := App.box_get(Bytes(Concat(sender.address(), receiver.address()))),
             Assert(box_content.hasValue()),
             """
-
-        
-            former_flow_rate = Bytes(read_flow_rate(sender, receiver)),
-            former_timestamp = Bytes(read_timestamp(sender, receiver)),
-            former_payments = Bytes(read_former_payments(sender, receiver)),
-            due_payment = BytesMul(Bytes("base16", former_flow_rate), Bytes("base16", former_timestamp)),
-            # payment_so_far = BytesAdd(Bytes("base16", last_payment), Bytes("base16", former_payments)), plus de zone tampon
-
-            self.pay_by_tx_sender(receiver = Global.current_application_address, due_payment), # receiver = smart contract ou utiliser la SS ici plutôt
-
-
-            App.box_replace(Bytes(Concat(sender.address(), receiver.address())), Int(0), Bytes(Concat(Itob(new_flowRate), Itob(Global.latest_timestamp))))
-
            
 
         )
 
+    """
     @internal()
     def sender_enough_algos(self, amount: abi.Uint64):
         return If(Txn.sender.balance.get() > amount, claim())
     
-    @internal
-    def claim(self, sender: abi.Account, receiver: abi.Account):
-        # faire l'appel à la SS 
-        # faire un claim de la somme latest_payment avec la SS comme ça pas besoin de zone tampon ?
-        
-
-    
+    """
 
 
     
@@ -243,6 +251,49 @@ class Flow(Application):
         })
 
 
+def demo():
+    # Set up accounts we'll use
+    accts = sandbox.get_accounts()
+    acct1 = accts.pop()
+    acct2 = accts.pop()
+    print(f"account 1 address: {acct1.address}")
+
+    # Set up Algod Client
+    client=sandbox.get_algod_client()
+
+    # Create Application client
+    app_client1 = ApplicationClient(
+        client, app=Flow(), signer=acct1.signer
+    )
+
+    # Create the app on-chain (uses signer1)
+    app_client1.create()
+    print(f"Current app state: {app_client1.get_application_state()}\n")
+    # Fund the app account with 1 algo
+    app_client1.fund(1 * consts.algo)
+
+    # Set nickname of acct1
+    # app_client1.opt_in()
+    app_client1.call(Flow.create_flow, sender = acct1, receiver = acct2, flowRate = 1000)
+    print("account 1 local state:")
+    print(app_client1.get_account_state(), "\n")
+
+    # Show application account information
+    print("application acct info:")
+    app_acct_info = json.dumps(app_client1.get_application_account_info(), indent=4)
+    print(app_acct_info)
+
+    try:
+        # app_client1.close_out()
+        app_client1.delete()
+    except Exception as e:
+        print(e)
+
+demo()
+
+if __name__ == "__main__":
+    demo()
+
 
 if __name__ == "__main__":
 
@@ -251,7 +302,7 @@ if __name__ == "__main__":
     if os.path.exists("approval.teal"):
         os.remove("approval.teal")
 
-    if os.path.exists("approval.teal"):
+    if os.path.exists("clear.teal"):
         os.remove("clear.teal")
 
     if os.path.exists("abi.json"):

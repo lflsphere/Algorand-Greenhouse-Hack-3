@@ -1,5 +1,6 @@
 {
   "dependencies": {
+    "algod": "^1.0.0",
     "algosdk": "^2.0.0"
   }
 }
